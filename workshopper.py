@@ -1,19 +1,44 @@
-import csv
-import time
-
 from selenium import webdriver
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver import ActionChains
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as ec
-from selenium.webdriver.support.wait import WebDriverWait
+import time
+import csv
 
 my_chrome_profile = "Default"
 path_to_my_chrome_profile = r"C:\Users\irdam\AppData\Local\Google\Chrome\User Data"
-path_to_chromedriver = r"C:\Users\irdam\Google Drive\Programação\Selenium webdriver\chromedriver.exe"
+
 options = webdriver.ChromeOptions()
 options.add_argument("--user-data-dir={}".format(path_to_my_chrome_profile))
 options.add_argument("--profile-directory={}".format(my_chrome_profile))
-driver = webdriver.Chrome(executable_path=path_to_chromedriver, options=options)
+
+driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
+
+key_combination = ActionChains(driver)
+
+
+def open_new_tab(url):
+    driver.execute_script('''window.open("{}","_blank");'''.format(url))
+    time.sleep(1)
+    current_handles = driver.window_handles
+    current_handle = driver.current_window_handle
+    current_handle_index = current_handles.index(current_handle)
+    next_tab_index = current_handle_index - 1
+    driver.switch_to.window(driver.window_handles[next_tab_index])
+
+
+def find(css_selector):
+    return driver.find_element(By.CSS_SELECTOR, css_selector)
+
+
+def finds(css_selector):
+    return driver.find_elements(By.CSS_SELECTOR, css_selector)
 
 
 def abrir_pagina(endereco):
@@ -31,8 +56,8 @@ def esperar_tantos_segundos(tempo_em_segundos):
 def pegar_lista_de_itens_inscritos():
     """Cria uma planilha com nome, link e link da foto de cada item inscrito na oficina"""
 
-    with open("Itens inscritos da Workshop.csv", "w", encoding="utf-8", newline="") as planilha:
-        meus_itens_inscritos = "https://steamcommunity.com/id/damacenikos/myworkshopfiles/?appid=255710" \
+    with open("Itens inscritos da Workshop_rascunho.csv", "w", encoding="utf-8", newline="") as planilha:
+        meus_itens_inscritos = "https://steamcommunity.com/id/ikromano/myworkshopfiles/?appid=255710" \
                                "&browsefilter=mysubscriptions" \
                                "&sortmethod=alpha" \
                                "&numperpage=30"
@@ -40,22 +65,43 @@ def pegar_lista_de_itens_inscritos():
         abrir_pagina(meus_itens_inscritos)
         ultima_pagina = False
         while not ultima_pagina:
-            def copiar_info_de_cada_item():
+            def copiar_infos_da_lista():
                 print("Copiando itens para a planilha")
-                itens_inscritos = driver.find_elements_by_class_name("itemContents")
-                for item in itens_inscritos:
-                    nome = item.find_element_by_class_name("workshopItemTitle").text
-                    link = item.find_element_by_css_selector("div.workshopItemSubscriptionDetails > a").get_attribute(
-                        "href")
-                    imagem = item.find_element_by_class_name("workshopItemPreviewImage").get_attribute("src")
+                item_atual = 0
+                total_de_itens_na_pagina = len(finds(".itemContents"))
+
+                nomes = finds(".itemContents .workshopItemTitle")
+                links = finds(".workshopItemSubscriptionDetails > a")
+                imagens = finds(".workshopItemPreviewImage")
+
+                while item_atual < total_de_itens_na_pagina:
+                    nome = nomes[item_atual].text
+                    link = links[item_atual].get_attribute("href")
+                    imagem = imagens[item_atual].get_attribute("src")
+
                     writer = csv.writer(planilha)
                     writer.writerow([imagem, nome, link])
+
+                    print("• {}".format(nome))
+
+                    item_atual += 1
+
+            def copiar_info_de_cada_item():
+                print("Copiando itens para a planilha")
+                itens_inscritos = finds(".itemContents")
+                for item in itens_inscritos:
+                    nome = find(".workshopItemTitle").text
+                    link = find(".workshopItemSubscriptionDetails > a").get_attribute("href")
+                    imagem = find(".workshopItemPreviewImage").get_attribute("src")
+
+                    writer = csv.writer(planilha)
+                    writer.writerow([imagem, nome, link])
+
                     print("• {}".format(nome))
 
             def ir_para_proxima_pagina():
                 try:
-                    proxima_pagina = driver.find_element_by_css_selector(
-                        "div.workshopBrowsePagingControls :last-child").get_attribute("href")
+                    proxima_pagina = find("div.workshopBrowsePagingControls :last-child").get_attribute("href")
                     if proxima_pagina is not None:
                         print("Próxima página")
                         esperar_tantos_segundos(1)
@@ -67,13 +113,14 @@ def pegar_lista_de_itens_inscritos():
                 except NoSuchElementException:
                     atualizar_pagina()
 
-            copiar_info_de_cada_item()
+            # copiar_info_de_cada_item()
+            copiar_infos_da_lista()
             ir_para_proxima_pagina()
 
 
 def adicionar_dados_dos_itens():
-    with open("Itens inscritos da Workshop.csv", "r", encoding="utf-8", newline="") as in_file, open(
-            "Itens inscritos da Workshop_completo.csv", "w", encoding="utf-8", newline="") as out_file:
+    with open("Itens inscritos da Workshop_rascunho.csv", "r", encoding="utf-8", newline="") as in_file, open(
+            "Itens inscritos da Workshop_csv.csv", "w", encoding="utf-8", newline="") as out_file:
         reader = csv.reader(in_file)
         writer = csv.writer(out_file)
         print("Adicionando autor, categoria e coleções dos itens:")
@@ -83,12 +130,9 @@ def adicionar_dados_dos_itens():
             item_encontrado = True
             for tentativa in range(3):
                 try:
-                    autor = driver.find_element_by_css_selector(
-                        "div.breadcrumbs > a:nth-child(3)").text
+                    autor = find("div.breadcrumbs > a:nth-child(5)").text
                     autor = " ".join(autor.split(" ")[2:])
-                    oficina_do_autor = driver.find_element_by_css_selector(
-                        "div.breadcrumbs > a:nth-child(3)").get_attribute(
-                        "href")
+                    oficina_do_autor = find("div.breadcrumbs > a:nth-child(5)").get_attribute("href")
                     categorias_e_colecoes = []
                 except NoSuchElementException:
                     atualizar_pagina()
@@ -98,29 +142,29 @@ def adicionar_dados_dos_itens():
                 item_encontrado = False
                 print("Impossível carregar a página do item \"" + row[1] + "\" ou localizar o autor e sua oficina")
 
-            # noinspection PyUnboundLocalVariable
+            # noinspection PyUnboundLocalVariable,PyTypeChecker
             def adicionar_categorias_do_item():
                 try:
                     nonlocal categorias_e_colecoes
-                    categorias_e_colecoes.append(
-                        driver.find_element_by_css_selector(".rightDetailsBlock > a").text)
+                    categorias_e_colecoes.append(find(".rightDetailsBlock > a").text)
                 except NoSuchElementException:
-                    subcategorias_de_assets = driver.find_elements_by_css_selector(
-                        ".rightDetailsBlock > div > a")
+                    subcategorias_de_assets = finds(".rightDetailsBlock > div > a")
                     for categoria in subcategorias_de_assets:
                         categorias_e_colecoes.append(categoria.text)
 
             def adicionar_colecoes_do_item():
                 try:
-                    botao_adicionar_a_colecao = driver.find_element_by_id("AddToCollectionBtn")
+                    botao_adicionar_a_colecao = find("#AddToCollectionBtn")
                     botao_adicionar_a_colecao.click()
                     esperar = WebDriverWait(driver, 10)
-                    lista_de_colecoes = esperar.until(ec.visibility_of_all_elements_located(
+                    lista_de_colecoes = esperar.until(EC.visibility_of_all_elements_located(
                         (By.CLASS_NAME, "add_to_collection_dialog_checkbox")))  # não me parece muito legível mas ok
                     for colecao in lista_de_colecoes:
                         if colecao.is_selected():
                             categorias_e_colecoes.append(colecao.get_attribute("data-title"))
                 except NoSuchElementException:
+                    atualizar_pagina()
+                except TimeoutException:
                     atualizar_pagina()
 
             def ordenar_categorias_e_colecoes():
@@ -144,7 +188,7 @@ def adicionar_dados_dos_itens():
                 pass
 
 
-pegar_lista_de_itens_inscritos()
-adicionar_dados_dos_itens()
-input("Pressione qualquer tecla para encerrar.")
-driver.quit()
+# pegar_lista_de_itens_inscritos()
+# adicionar_dados_dos_itens()
+# input("Pressione qualquer tecla para encerrar.")
+# driver.quit()
